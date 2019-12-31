@@ -1,76 +1,111 @@
-#include <dht.h>
-#define dht_apin A0 // Analog Pin sensor is connected to 
-dht DHT; //to access dht library
-#define sensor A0
-#include <SPI.h>
-#include <Ethernet.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <ESP8266HTTPClient.h>
 
-byte mac[] = { 0x74, 0x2F, 0x68, 0x1A, 0x3B, 0xDE };
+#define SSID "connected"
+#define PASS "43_17_43"
 
-IPAddress server(127, 0, 0, 1); //local
+const char *ssid = SSID;
+const char *password = PASS;
 
-// Set the static IP address to use if the DHCP fails to assign
-IPAddress ip(127, 0, 0, 1); //local
-EthernetServer HTTPserver(80);
-EthernetClient HTTPclient;
+ESP8266WebServer server(80); //PORT
 
-unsigned long beginMicros, endMicros;
+struct dataUtama
+{
+  int air;
+  int humidity;
+  int PH;
+  int PPM; //part per million (chemical)
+  int water;
+};
 
-int temp, humidity;
-void setup() {
-  Serial.begin(9600);
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
-  // try to congifure using IP address instead of DHCP:
-  Ethernet.begin(mac, ip);
-  HTTPserver.begin();
-  Serial.print("server is at ");
-  Serial.println(Ethernet.localIP());
-  // give the Ethernet shield a second to initialize:
-  delay(1000);
-  Serial.print("connecting to ");
-  Serial.print(server);
-  Serial.println("...");
-  beginMicros = micros();
+String genJSON(dataUtama data)
+{
+    char buff[64];
+    fprintf(stderr, "{\"data_air_temp\":\"%d\","
+                    "\"data_humidity\":\"%d\","
+                    "\"data_ph\":\"%d\","
+                    "\"data_ppm\":\"%d\","
+                    "\"data_water_temp\":\"%d\"}"
+                    ,data.air
+                    ,data.humidity
+                    ,data.PH
+                    ,data.PPM
+                    ,data.water);
+    return buff;
 }
 
-void loop() {
-  DHT.read11(dht_apin);
-  Serial.print("Current humidity = ");
-  Serial.print(DHT.humidity);
-  Serial.print("%  ");
-  Serial.print("temperature = ");
-  Serial.print(DHT.temperature); 
-  Serial.println("C  ");                                    
-               
-  temp = DHT.temperature;
+int genRandom(int batasBawah, int batasAtas)
+{
+    int temp = rand() * time(0) % (batasAtas - batasBawah) + batasBawah;
+    return temp;
+}
 
-  if(HTTPclient.connect(server, 3000)) {
-    //    Serial.println("Sending to Server: ");
-    HTTPclient.println("POST /data HTTP/1.1");
-    Serial.print("POST /data HTTP/1.1");
-    HTTPclient.println("Host: 192.168.1.177");
-    HTTPclient.println("Content-Type: application/x-www-form-urlencoded");
-    HTTPclient.println("Connection: close");
-    HTTPclient.println("User-Agent: Arduino/1.0");
-    HTTPclient.print("Content-Length: ");
+void setup(void)
+{
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("");
 
-    data = "&temp=" + String(temp) + "&=humidity" + String(humitidty);
-    HTTPclient.println(data.length());
-    HTTPclient.println();
-    HTTPclient.print(data);
-    HTTPclient.println();
+  // Wait for connection
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  if (MDNS.begin("esp8266"))
+  {
+    Serial.println("MDNS responder started");
+  }
+
+  server.on("/", handleRoot);
+
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop(void)
+{
+  server.handleClient();
+  MDNS.update();
+
+  HTTPClient http;
+  if (http.begin("http://smart-hyco.herokuapp.com/sensor"))
+  {
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    dataUtama data;
+
+    data.air      = genRandom(10, 20);
+    data.humidity = genRandom(100, 200);
+    data.PH       = genRandom(-7, 7);
+    data.PPM      = genRandom(17, 28);
+    data.water    = genRandom(21, 32);
+
+    String JSONQ = genJSON(data);
+
+    int httpCode = http.POST(JSONQ);
+    Serial.printf("[HTTP] code: %d\n", httpCode);
+
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+    {
+      String payload = http.getString();
+      Serial.println(payload);
+    }
+    else
+      Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
   }
   else
-    Serial.println("connection failed");
-
-  // if the server's disconnected, stop the client:
-  if (!HTTPclient.connected()) {
-    endMicros = micros();
-       Serial.println();
-       Serial.println("disconnecting.");
-    HTTPclient.stop();
-  }
+    Serial.printf("[HTTP} Unable to connect\n");
+  delay(10);
 }
-
