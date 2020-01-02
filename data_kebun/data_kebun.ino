@@ -24,11 +24,11 @@ struct dataUtama
 String genJSON(dataUtama data)
 {
     char buff[64];
-    fprintf(stderr, "{\"data_air_temp\":\"%d\","
-                    "\"data_humidity\":\"%d\","
-                    "\"data_ph\":\"%d\","
-                    "\"data_ppm\":\"%d\","
-                    "\"data_water_temp\":\"%d\"}"
+    sprintf(buff,   "data_air_temp=%d&"
+                    "data_humidity=%d&"
+                    "data_ph=%d&"
+                    "data_ppm=%d&"
+                    "data_water_temp=%d&"
                     ,data.air
                     ,data.humidity
                     ,data.PH
